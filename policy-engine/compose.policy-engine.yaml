@@ -1,0 +1,26 @@
+services:
+  opa:
+    image: openpolicyagent/opa:latest
+    profiles:
+      - opa
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - /policies
+    volumes:
+      - ./opa/policies:/policies:ro
+    networks:
+      default:
+        aliases:
+          - policy-engine
+
+  casbin:
+    build:
+      context: ./casbin
+    profiles:
+      - casbin
+    networks:
+      default:
+        aliases:
+          - policy-engine

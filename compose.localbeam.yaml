@@ -56,21 +56,19 @@ services:
     volumes:
       - pki:/pki:ro
 
-  proxy2:
-    image: samply/beam-proxy:main
-    depends_on:
-      - broker
-    ports:
-      - 4002:4002
-    environment:
-      BIND_ADDR: 0.0.0.0:4002
-      BROKER_URL: http://broker:4000
-      PROXY_ID: proxy2.broker
-      PRIVKEY_FILE: /pki/proxy2.priv.pem
-      ROOTCERT_FILE: /pki/root.crt.pem
-      APP_focus_KEY: pass123
-    volumes:
-      - pki:/pki:ro
+proxy2:
+  image: samply/beam-proxy:main
+  depends_on:
+    - broker
+  environment:
+    BIND_ADDR: 0.0.0.0:4002
+    BROKER_URL: http://broker:4000
+    PROXY_ID: proxy2.broker
+    PRIVKEY_FILE: /pki/proxy2.priv.pem
+    ROOTCERT_FILE: /pki/root.crt.pem
+    APP_focus_KEY: pass123
+  volumes:
+    - pki:/pki:ro
 
   proxy3:
     image: samply/beam-proxy:main
@@ -103,6 +101,22 @@ services:
       APP_focus_KEY: pass123
     volumes:
       - pki:/pki:ro
+
+  policy-proxy2:
+    build:
+      context: ./policy-engine/policy-proxy
+    depends_on:
+      - proxy2
+    ports:
+      - 4002:4002
+    environment:
+      BIND_ADDR: 0.0.0.0:4002
+      UPSTREAM_BEAM_PROXY_URL: http://proxy2:4002
+      POLICY_ENGINE_URL: http://policy-engine:8181
+      INPUT_POLICY_PATH: /v1/data/headlights/input/allow
+      OUTPUT_POLICY_PATH: /v1/data/headlights/output/allow
+      BEAM_APP_ID: focus.proxy2.broker
+      POLICY_FAIL_MODE: closed
 
 volumes:
   pki:
