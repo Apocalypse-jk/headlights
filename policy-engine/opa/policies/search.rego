@@ -3,5 +3,6 @@ package input
 default allow_access := false
 
 allow_access if {
-	input.from == "focus.mannheim.broker.bbmri.samply.de"
+    input.from == "spot.proxy1.broker"
+    "focus.proxy2.broker" in input.to
 }

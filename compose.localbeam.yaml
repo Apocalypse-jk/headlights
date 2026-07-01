@@ -56,19 +56,21 @@ services:
     volumes:
       - pki:/pki:ro
 
-proxy2:
-  image: samply/beam-proxy:main
-  depends_on:
-    - broker
-  environment:
-    BIND_ADDR: 0.0.0.0:4002
-    BROKER_URL: http://broker:4000
-    PROXY_ID: proxy2.broker
-    PRIVKEY_FILE: /pki/proxy2.priv.pem
-    ROOTCERT_FILE: /pki/root.crt.pem
-    APP_focus_KEY: pass123
-  volumes:
-    - pki:/pki:ro
+  # The real Beam proxy remains responsible for Broker communication,
+  # authentication and decryption. It is reachable only inside Compose.
+  proxy2:
+    image: samply/beam-proxy:main
+    depends_on:
+      - broker
+    environment:
+      BIND_ADDR: 0.0.0.0:4002
+      BROKER_URL: http://broker:4000
+      PROXY_ID: proxy2.broker
+      PRIVKEY_FILE: /pki/proxy2.priv.pem
+      ROOTCERT_FILE: /pki/root.crt.pem
+      APP_focus_KEY: pass123
+    volumes:
+      - pki:/pki:ro
 
   proxy3:
     image: samply/beam-proxy:main
@@ -102,6 +104,7 @@ proxy2:
     volumes:
       - pki:/pki:ro
 
+  # Focus connects to this Beam-compatible facade instead of directly to proxy2.
   policy-proxy2:
     build:
       context: ./policy-engine/policy-proxy
@@ -113,10 +116,25 @@ proxy2:
       BIND_ADDR: 0.0.0.0:4002
       UPSTREAM_BEAM_PROXY_URL: http://proxy2:4002
       POLICY_ENGINE_URL: http://policy-engine:8181
-      INPUT_POLICY_PATH: /v1/data/headlights/input/allow
-      OUTPUT_POLICY_PATH: /v1/data/headlights/output/allow
+      INPUT_POLICY_PATH: /v1/data/input/allow_access
+      OUTPUT_POLICY_PATH: /v1/data/output/allow_output
       BEAM_APP_ID: focus.proxy2.broker
       POLICY_FAIL_MODE: closed
+      POLICY_TIMEOUT_MS: 5000
+      UPSTREAM_TIMEOUT_MS: 120000
+      MAX_BODY_BYTES: 20971520
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4002/v1/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 10s
 
 volumes:
   pki:

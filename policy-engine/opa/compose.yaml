@@ -1,11 +1,19 @@
 services:
   opa:
     image: openpolicyagent/opa:latest
+    profiles:
+      - opa
     command:
       - run
       - --server
+      - --watch
+      - --addr=0.0.0.0:8181
       - /policies
     volumes:
-      - ./policies:/policies
+      - ./policies:/policies:ro
     ports:
-      - "8181:8181"
+      - 8181:8181
+    networks:
+      default:
+        aliases:
+          - policy-engine
