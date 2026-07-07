@@ -33,10 +33,12 @@ export class PolicyClient {
   }
 
   public authorizeInput(input: unknown): Promise<PolicyDecision> {
+    // Input policies decide whether a retrieved Beam task may be shown to Focus.
     return this.evaluate(this.inputPolicyPath, input, "input");
   }
 
   public authorizeOutput(input: unknown): Promise<PolicyDecision> {
+    // Output policies decide whether a claimed/succeeded result may leave the site.
     return this.evaluate(this.outputPolicyPath, input, "output");
   }
 
@@ -57,6 +59,8 @@ export class PolicyClient {
     input: unknown,
     phase: "input" | "output",
   ): Promise<PolicyDecision> {
+    // The policy engine gets a simple { input: ... } payload so the proxy can swap
+    // OPA later for another engine behind the same internal decision format.
     try {
       const response = await fetch(`${this.engineUrl}${path}`, {
         method: "POST",
@@ -101,6 +105,8 @@ export class PolicyClient {
 }
 
 function normalizeOpaDecision(payload: OpaResponse): PolicyDecision | undefined {
+  // OPA may return either a plain boolean or an object with allow/reason.
+  // This helper normalizes both variants into one proxy-internal format.
   if (typeof payload.result === "boolean") {
     return { allow: payload.result };
   }
@@ -115,5 +121,6 @@ function normalizeOpaDecision(payload: OpaResponse): PolicyDecision | undefined 
 }
 
 function normalizePath(path: string): string {
+  // Config may contain the path with or without a leading slash.
   return path.startsWith("/") ? path : `/${path}`;
 }

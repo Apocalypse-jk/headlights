@@ -68,6 +68,8 @@ export function decodeBodyForPolicy(body: unknown): unknown {
 }
 
 export function mapTaskToPolicyInput(task: BeamTask, appId: string): PolicyInput {
+  // For input checks we keep the original task fields and only enrich them with
+  // a decoded body plus a small policy context for tracing/evaluation.
   return {
     ...task,
     body: decodeBodyForPolicy(task.body),
@@ -84,6 +86,8 @@ export function mapResultToPolicyInput(
   taskId: string,
   appId: string,
 ): PolicyInput {
+  // Output checks mirror the same shape so both policy phases can work with a
+  // consistent input model even though Beam tasks and Beam results differ slightly.
   return {
     ...result,
     task: result.task || taskId,
@@ -100,6 +104,8 @@ export function createInputDeniedResult(
   task: BeamTask,
   appId: string,
 ): BeamResult {
+  // Beam expects a real result object even for denied tasks. The proxy therefore
+  // synthesizes a permanent failure instead of silently dropping the task.
   return {
     from: appId,
     to: [task.from],
@@ -121,6 +127,8 @@ export function createOutputDeniedResult(
   taskId: string,
   appId: string,
 ): BeamResult {
+  // For denied outputs we preserve the Beam result envelope but replace the body
+  // with a neutral policy error so protected data never leaves the local site.
   return {
     from: appId,
     to: Array.isArray(original.to) ? original.to : [],
@@ -138,6 +146,7 @@ export function createOutputDeniedResult(
 }
 
 function encodeJsonBody(value: unknown): string {
+  // Beam result bodies are forwarded as Base64-encoded JSON strings in this setup.
   return Buffer.from(JSON.stringify(value), "utf8").toString("base64");
 }
 

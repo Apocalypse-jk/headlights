@@ -26,6 +26,8 @@ export class BeamClient {
     response: BeamResponse;
     tasks: BeamTask[];
   }> {
+    // Task polling is special because the caller needs both the raw HTTP response
+    // and the parsed task array for later policy evaluation.
     const response = await this.request("GET", pathWithQuery, headers);
 
     if (response.status < 200 || response.status >= 300) {
@@ -56,6 +58,7 @@ export class BeamClient {
     result: BeamResult,
     headers: HeadersInit,
   ): Promise<BeamResponse> {
+    // Result submission always uses Beam's task/result route and forwards JSON.
     const path = `/v1/tasks/${encodeURIComponent(taskId)}/results/${encodeURIComponent(appId)}`;
     return this.request("PUT", path, withJsonContentType(headers), Buffer.from(JSON.stringify(result)));
   }
@@ -75,6 +78,8 @@ export class BeamClient {
     headers: HeadersInit,
     body?: Buffer,
   ): Promise<BeamResponse> {
+    // This method is the low-level transport wrapper around fetch. It keeps the
+    // server code free from repetitive timeout and response-buffer handling.
     const init: RequestInit = {
       method,
       headers,
@@ -98,6 +103,7 @@ export class BeamClient {
 }
 
 function withJsonContentType(headers: HeadersInit): Headers {
+  // We rebuild these headers because the proxy becomes the new HTTP sender.
   const result = new Headers(headers);
   result.set("content-type", "application/json");
   result.delete("content-length");

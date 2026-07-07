@@ -123,6 +123,10 @@ services:
       POLICY_TIMEOUT_MS: 5000
       UPSTREAM_TIMEOUT_MS: 120000
       MAX_BODY_BYTES: 20971520
+      AUDIT_LOG_PATH: /audit/policy-proxy2-audit.jsonl
+      AUDIT_LOG_CONSOLE: "true"
+    volumes:
+      - policy-proxy2-audit:/audit
     healthcheck:
       test:
         [
@@ -138,3 +142,4 @@ services:
 
 volumes:
   pki:
+  policy-proxy2-audit:
