@@ -1,4 +1,5 @@
 .env
+/policy-engine/benchmarks/runs/
 
 # Playwright
 node_modules/

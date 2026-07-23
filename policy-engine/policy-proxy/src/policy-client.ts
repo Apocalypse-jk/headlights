@@ -2,7 +2,8 @@ export type PolicyFailMode = "open" | "closed";
 
 export interface PolicyDecision {
   allow: boolean;
-  reason?: string;
+  reason?: string | undefined;
+  evaluationMs?: number | undefined;
 }
 
 export interface PolicyClientOptions {
@@ -61,6 +62,8 @@ export class PolicyClient {
   ): Promise<PolicyDecision> {
     // The policy engine gets a simple { input: ... } payload so the proxy can swap
     // OPA later for another engine behind the same internal decision format.
+    const start = performance.now();
+
     try {
       const response = await fetch(`${this.engineUrl}${path}`, {
         method: "POST",
@@ -78,23 +81,29 @@ export class PolicyClient {
 
       const payload = (await response.json()) as OpaResponse;
       const decision = normalizeOpaDecision(payload);
+      const evaluationMs = Math.round((performance.now() - start) * 100) / 100;
 
       if (decision === undefined) {
         // An undefined OPA result generally means that the requested rule/path
         // does not exist. Treat this as a deny rather than silently allowing it.
         return {
           allow: false,
+          evaluationMs,
           reason: `No ${phase} policy decision was returned. Check the configured policy path.`,
         };
       }
 
-      return decision;
+      return {
+        ...decision,
+        evaluationMs,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[policy-proxy] ${phase} policy evaluation failed: ${message}`);
 
       return {
         allow: this.failMode === "open",
+        evaluationMs: Math.round((performance.now() - start) * 100) / 100,
         reason:
           this.failMode === "open"
             ? `Policy engine unavailable; allowed because POLICY_FAIL_MODE=open (${message})`

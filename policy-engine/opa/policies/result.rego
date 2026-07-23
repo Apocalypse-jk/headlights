@@ -35,6 +35,10 @@ allow_output if {
 	every _, count in input.body.stratifiers.donor_age {
 		privacy_check(count)
 	}
+
+    every _, count in input.body.stratifiers.sample_kind {
+		privacy_check(count)
+	}
 }
 
 allow_output if {

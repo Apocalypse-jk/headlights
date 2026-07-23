@@ -264,6 +264,7 @@ async function handleTaskRetrieval(
       details: {
         from: task.from,
         to: task.to,
+        policy_evaluation_ms: decision.evaluationMs,
       },
     });
 
@@ -369,6 +370,8 @@ async function handleResultSubmission(
       from: result.from,
       to: result.to,
       request_context_found: storedContext !== undefined,
+      policy_evaluation_ms: decision.evaluationMs,
+      output_summary: summarizeOutputPolicyInput(outputInput),
     },
   });
 
@@ -433,6 +436,101 @@ function isTerminalStatus(status: BeamResult["status"]): boolean {
   // "claimed" is not terminal because Focus usually sends it before the final
   // succeeded/failed result. Keeping the context after claimed is therefore key.
   return status === "succeeded" || status === "permfailed";
+}
+
+function summarizeOutputPolicyInput(input: PolicyInput): Record<string, unknown> {
+  // The audit log should help explain decisions without storing the complete
+  // medical result body. This summary contains only aggregate values and boolean
+  // checks that correspond to the current Rego output policy.
+  const body = asRecord(input.body);
+  const totals = asRecord(body?.totals);
+  const stratifiers = asRecord(body?.stratifiers);
+  const gender = asRecord(stratifiers?.gender);
+  const donorAge = asRecord(stratifiers?.donor_age);
+
+  const patientCount = getNumber(totals, "patient");
+  const diagnosisCount = getNumber(totals, "diagnosis");
+  const femaleCount = getNumber(gender, "female");
+  const maleCount = getNumber(gender, "male");
+  const otherCount = getNumber(gender, "other");
+
+  const donorAgeCounts = donorAge === undefined ? [] : Object.values(donorAge);
+  const donorAgeNumericCounts = donorAgeCounts.filter((value): value is number => typeof value === "number");
+
+  const summary = {
+    body_type: Array.isArray(input.body) ? "array" : typeof input.body,
+    has_totals: totals !== undefined,
+    has_stratifiers: stratifiers !== undefined,
+    has_gender_stratifier: gender !== undefined,
+    has_donor_age_stratifier: donorAge !== undefined,
+    patient_count: patientCount,
+    diagnosis_count: diagnosisCount,
+    female_count: femaleCount,
+    male_count: maleCount,
+    other_count: otherCount,
+    donor_age_bucket_count: donorAge === undefined ? 0 : Object.keys(donorAge).length,
+    donor_age_has_non_numeric_bucket: donorAgeCounts.length !== donorAgeNumericCounts.length,
+    donor_age_has_low_nonzero_bucket: donorAgeNumericCounts.some((count) => !passesPrivacyCount(count)),
+    passes_patient_threshold: patientCount >= 50,
+    passes_diagnosis_threshold: diagnosisCount >= 50,
+    passes_gender_privacy: [femaleCount, maleCount, otherCount].every(passesPrivacyCount),
+    passes_donor_age_privacy:
+      donorAge !== undefined &&
+      donorAgeCounts.length === donorAgeNumericCounts.length &&
+      donorAgeNumericCounts.every(passesPrivacyCount),
+    matches_empty_result_rule: patientCount === 0 && diagnosisCount === 0,
+  };
+
+  return {
+    ...summary,
+    potential_blockers: collectPotentialOutputBlockers(summary),
+  };
+}
+
+function collectPotentialOutputBlockers(summary: {
+  passes_patient_threshold: boolean;
+  passes_diagnosis_threshold: boolean;
+  passes_gender_privacy: boolean;
+  passes_donor_age_privacy: boolean;
+  matches_empty_result_rule: boolean;
+}): string[] {
+  if (summary.matches_empty_result_rule) {
+    return [];
+  }
+
+  const blockers: string[] = [];
+
+  if (!summary.passes_patient_threshold) {
+    blockers.push("patient_count_below_threshold");
+  }
+  if (!summary.passes_diagnosis_threshold) {
+    blockers.push("diagnosis_count_below_threshold");
+  }
+  if (!summary.passes_gender_privacy) {
+    blockers.push("gender_privacy_check_failed");
+  }
+  if (!summary.passes_donor_age_privacy) {
+    blockers.push("donor_age_privacy_check_failed_or_missing");
+  }
+
+  return blockers;
+}
+
+function passesPrivacyCount(count: number): boolean {
+  return count === 0 || count >= 10;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  return undefined;
+}
+
+function getNumber(record: Record<string, unknown> | undefined, key: string): number {
+  const value = record?.[key];
+  return typeof value === "number" ? value : 0;
 }
 
 async function forwardUnmodified(
