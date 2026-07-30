@@ -40,11 +40,3 @@ allow_output if {
 		privacy_check(count)
 	}
 }
-
-allow_output if {
-    input.status == "succeeded"
-    input.from == "focus.proxy2.broker"
-
-    patient_count == 0
-	diagnosis_count == 0
-}
