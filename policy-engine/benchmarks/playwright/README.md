@@ -16,7 +16,7 @@ summary.
 From the repository root:
 
 ```powershell
-.\policy-engine\benchmarks\run-benchmark.ps1 `
+.\policy-engine\benchmarks\playwright\run-benchmark.ps1 `
   -Architecture opa-policy-proxy `
   -WarmupIterations 5 `
   -Iterations 30 `
@@ -26,7 +26,7 @@ From the repository root:
 For parallel requests:
 
 ```powershell
-.\policy-engine\benchmarks\run-benchmark.ps1 `
+.\policy-engine\benchmarks\playwright\run-benchmark.ps1 `
   -Architecture opa-policy-proxy `
   -WarmupIterations 5 `
   -Iterations 30 `
@@ -34,7 +34,7 @@ For parallel requests:
 ```
 
 ```powershell
-.\policy-engine\benchmarks\run-benchmark.ps1 `
+.\policy-engine\benchmarks\playwright\run-benchmark.ps1 `
   -Architecture opa-policy-proxy `
   -WarmupIterations 5 `
   -Iterations 30 `
@@ -79,7 +79,7 @@ docker compose -f bbmri-sample-locator/compose.local.yaml up -d --no-deps focus
 ```
 
 ```powershell
-.\policy-engine\benchmarks\run-benchmark.ps1 `
+.\policy-engine\benchmarks\playwright\run-benchmark.ps1 `
   -Architecture baseline `
   -WarmupIterations 5 `
   -Iterations 30 `
@@ -101,7 +101,7 @@ docker compose `  -f bbmri-sample-locator/compose.local.yaml `  --profile opa ` 
 ```
 
 ```powershell
-.\policy-engine\benchmarks\run-benchmark.ps1 `
+.\policy-engine\benchmarks\playwright\run-benchmark.ps1 `
   -Architecture opa-policy-proxy `
   -WarmupIterations 5 `
   -Iterations 30 `
@@ -115,7 +115,7 @@ docker compose `  -f bbmri-sample-locator/compose.local.yaml `  --profile opa ` 
 Each run creates a timestamped folder under:
 
 ```text
-policy-engine/benchmarks/runs/
+policy-engine/benchmarks/playwright/runs/
 ```
 
 Files:

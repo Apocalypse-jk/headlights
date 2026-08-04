@@ -24,4 +24,4 @@ $env:BENCH_COMPOSE_PROFILE = if ($ComposeProfile -eq "") { "disabled" } else { $
 $env:BENCH_POLICY_LOG_SERVICE = if ($PolicyLogService -eq "") { "disabled" } else { $PolicyLogService }
 $env:BENCH_SCENARIOS = if ($Scenarios -eq "") { "disabled" } else { $Scenarios }
 
-node policy-engine/benchmarks/run-benchmark.mjs
+node policy-engine/benchmarks/playwright/run-benchmark.mjs

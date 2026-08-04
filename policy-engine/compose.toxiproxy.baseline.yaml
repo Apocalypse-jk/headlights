@@ -1,0 +1,51 @@
+services:
+  # Baseline Toxiproxy setup without the policy proxy.
+  #
+  # Path:
+  #   Focus -> toxiproxy:4002 -> proxy2:4002
+  #
+  # This keeps the same Toxiproxy admin API and proxy name as the OPA setup, so
+  # the curl benchmark script can reuse its existing profile logic unchanged.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:latest
+    profiles:
+      - toxiproxy
+    ports:
+      - 8474:8474
+
+  toxiproxy-config:
+    image: curlimages/curl:latest
+    profiles:
+      - toxiproxy
+    depends_on: !override
+      - toxiproxy
+      - proxy2
+    command:
+      - sh
+      - -c
+      - |
+        until curl -fsS http://toxiproxy:8474/version >/dev/null; do
+          sleep 1
+        done
+
+        curl -fsS \
+          -X POST \
+          -H 'Content-Type: application/json' \
+          --data '[{"name":"focus_policy_proxy","listen":"0.0.0.0:4002","upstream":"proxy2:4002","enabled":true}]' \
+          http://toxiproxy:8474/populate
+
+  focus:
+    depends_on: !override
+      toxiproxy-config:
+        condition: service_completed_successfully
+      blaze:
+        condition: service_healthy
+    environment:
+      BEAM_PROXY_URL: http://toxiproxy:4002
+
+  # compose.localbeam.yaml defines policy-proxy2 without a profile. For the
+  # baseline stack we attach it to an unused profile, so a normal baseline start
+  # does not create the policy-proxy container or publish host port 4002.
+  policy-proxy2:
+    profiles:
+      - policy-proxy

@@ -1,5 +1,8 @@
 .env
-/policy-engine/benchmarks/runs/
+/policy-engine/benchmarks/playwright/runs/
+/policy-engine/benchmarks/playwright/plots/
+/policy-engine/benchmarks/curl/runs/
+/policy-engine/benchmarks/curl/plots/
 
 # Playwright
 node_modules/

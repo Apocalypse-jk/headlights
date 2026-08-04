@@ -411,7 +411,7 @@ async function waitForSearchCompletion(page, timeoutMs, scenario, phase, runNumb
       return;
     }
 
-    await page.waitForTimeout(1_000);
+    await page.waitForTimeout(100);
   }
 
   throw new Error(

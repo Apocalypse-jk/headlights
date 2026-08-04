@@ -1,0 +1,48 @@
+services:
+  # Toxiproxy is inserted between Focus and the Policy Proxy.
+  #
+  # Normal path:
+  #   Focus -> policy-proxy2:4002
+  #
+  # With this override:
+  #   Focus -> toxiproxy:4002 -> policy-proxy2:4002
+  #
+  # This lets benchmarks simulate network latency, bandwidth limits or broken
+  # connections on the local authorization boundary without changing Focus,
+  # Policy Proxy, Beam Proxy, Broker or Blaze.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:latest
+    profiles:
+      - toxiproxy
+    ports:
+      - 8474:8474
+
+  # The Toxiproxy server starts empty. This one-shot container creates the proxy
+  # entry before Focus starts polling tasks through it.
+  toxiproxy-config:
+    image: curlimages/curl:latest
+    profiles:
+      - toxiproxy
+    depends_on:
+      - toxiproxy
+      - policy-proxy2
+    command:
+      - sh
+      - -c
+      - |
+        until curl -fsS http://toxiproxy:8474/version >/dev/null; do
+          sleep 1
+        done
+
+        curl -fsS \
+          -X POST \
+          -H 'Content-Type: application/json' \
+          --data '[{"name":"focus_policy_proxy","listen":"0.0.0.0:4002","upstream":"policy-proxy2:4002","enabled":true}]' \
+          http://toxiproxy:8474/populate
+
+  focus:
+    depends_on:
+      toxiproxy-config:
+        condition: service_completed_successfully
+    environment:
+      BEAM_PROXY_URL: http://toxiproxy:4002
