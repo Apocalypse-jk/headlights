@@ -22,6 +22,12 @@ $Scenarios = @(
   }
 )
 
+function Format-DurationSeconds {
+  param([double]$DurationMs)
+
+  return "{0:N2}s" -f ($DurationMs / 1000)
+}
+
 $ProfileDefinitions = @{
   "lan" = @()
   "wan-typical" = @(
@@ -171,7 +177,13 @@ $Headers = @(
   "error",
   "profile",
   "http_status",
-  "response_bytes"
+  "response_bytes",
+  "task_id",
+  "post_duration_ms",
+  "time_to_first_event_ms",
+  "time_to_claimed_ms",
+  "time_to_terminal_ms",
+  "claimed_to_terminal_ms"
 )
 Set-Content -Path $CsvPath -Value ($Headers -join ",") -Encoding UTF8
 
@@ -279,11 +291,29 @@ function Find-PatientCountInObject {
       if ($Totals.PSObject.Properties.Name -contains "patient" -and $Totals.patient -match "^\d+(\.\d+)?$") {
         return [string]$Totals.patient
       }
+
+      if ($Totals.PSObject.Properties.Name -contains "result" -and $Totals.result -match "^\d+(\.\d+)?$") {
+        return [string]$Totals.result
+      }
     }
 
     foreach ($Name in @("patient_count", "patientCount", "patients", "patient")) {
       if ($Value.PSObject.Properties.Name -contains $Name -and $Value.$Name -match "^\d+(\.\d+)?$") {
         return [string]$Value.$Name
+      }
+    }
+
+    if ($Value.PSObject.Properties.Name -contains "resourceType" -and $Value.resourceType -eq "MeasureReport") {
+      foreach ($Group in @($Value.group)) {
+        foreach ($Population in @($Group.population)) {
+          if (
+            $null -ne $Population `
+            -and $Population.PSObject.Properties.Name -contains "count" `
+            -and $Population.count -match "^\d+(\.\d+)?$"
+          ) {
+            return [string]$Population.count
+          }
+        }
       }
     }
 
@@ -320,6 +350,7 @@ function Parse-PatientCount {
     '"patients"\s*:\s*(\d+(?:\.\d+)?)',
     '"patient_count"\s*:\s*(\d+(?:\.\d+)?)',
     '"patientCount"\s*:\s*(\d+(?:\.\d+)?)',
+    '"totals"\s*:\s*\{[^}]*"result"\s*:\s*(\d+(?:\.\d+)?)',
     'Patients?\D{0,40}(\d+(?:[\.,]\d+)?)',
     'Patienten\D{0,40}(\d+(?:[\.,]\d+)?)'
   )) {
@@ -515,10 +546,16 @@ function Invoke-RealisticRequest {
     profile = $Profile
     http_status = $HttpStatus
     response_bytes = $ResponseBytes
+    task_id = ""
+    post_duration_ms = ""
+    time_to_first_event_ms = ""
+    time_to_claimed_ms = ""
+    time_to_terminal_ms = ""
+    claimed_to_terminal_ms = ""
   }
 
   Append-Measurement $Row
-  Write-Host "[$Phase] profile=$Profile scenario=$($Scenario.Name) run=$Run status=$Status duration=$($Row.duration_ms)ms patients=$($PatientCount -as [string]) bytes=$($ResponseBytes -as [string])"
+  Write-Host "[$Phase] profile=$Profile scenario=$($Scenario.Name) run=$Run status=$Status duration=$(Format-DurationSeconds $Row.duration_ms) patients=$($PatientCount -as [string]) bytes=$($ResponseBytes -as [string])"
 }
 
 function Invoke-Batch {
@@ -544,6 +581,12 @@ function Invoke-Batch {
       $ResponseBytes = ""
       $PatientCount = ""
       $ErrorMessage = ""
+      $TaskId = ""
+      $PostDurationMs = ""
+      $TimeToFirstEventMs = ""
+      $TimeToClaimedMs = ""
+      $TimeToTerminalMs = ""
+      $ClaimedToTerminalMs = ""
 
       function Find-PatientCountInObject {
         param($Value)
@@ -569,11 +612,29 @@ function Invoke-Batch {
             if ($Totals.PSObject.Properties.Name -contains "patient" -and $Totals.patient -match "^\d+(\.\d+)?$") {
               return [string]$Totals.patient
             }
+
+            if ($Totals.PSObject.Properties.Name -contains "result" -and $Totals.result -match "^\d+(\.\d+)?$") {
+              return [string]$Totals.result
+            }
           }
 
           foreach ($Name in @("patient_count", "patientCount", "patients", "patient")) {
             if ($Value.PSObject.Properties.Name -contains $Name -and $Value.$Name -match "^\d+(\.\d+)?$") {
               return [string]$Value.$Name
+            }
+          }
+
+          if ($Value.PSObject.Properties.Name -contains "resourceType" -and $Value.resourceType -eq "MeasureReport") {
+            foreach ($Group in @($Value.group)) {
+              foreach ($Population in @($Group.population)) {
+                if (
+                  $null -ne $Population `
+                  -and $Population.PSObject.Properties.Name -contains "count" `
+                  -and $Population.count -match "^\d+(\.\d+)?$"
+                ) {
+                  return [string]$Population.count
+                }
+              }
             }
           }
 
@@ -609,6 +670,7 @@ function Invoke-Batch {
           '"patients"\s*:\s*(\d+(?:\.\d+)?)',
           '"patient_count"\s*:\s*(\d+(?:\.\d+)?)',
           '"patientCount"\s*:\s*(\d+(?:\.\d+)?)',
+          '"totals"\s*:\s*\{[^}]*"result"\s*:\s*(\d+(?:\.\d+)?)',
           'Patients?\D{0,40}(\d+(?:[\.,]\d+)?)',
           'Patienten\D{0,40}(\d+(?:[\.,]\d+)?)'
         )) {
@@ -657,6 +719,9 @@ function Invoke-Batch {
         $LastEvent = ""
         $LastStatus = ""
         $LastContent = ""
+        $StreamStopwatch = [Diagnostics.Stopwatch]::StartNew()
+        $FirstEventMs = ""
+        $ClaimedMs = ""
 
         try {
           $Response = $Client.SendAsync(
@@ -693,6 +758,9 @@ function Invoke-Batch {
 
             $Data = $Line.Substring(5).Trim()
             $LastContent = $Data
+            if ($FirstEventMs -eq "") {
+              $FirstEventMs = [math]::Round($StreamStopwatch.Elapsed.TotalMilliseconds)
+            }
 
             if ($LastEvent -eq "wait_expired") {
               return @{
@@ -700,6 +768,9 @@ function Invoke-Batch {
                 Status = "timeout"
                 Content = $Data
                 Bytes = $Bytes
+                FirstEventMs = $FirstEventMs
+                ClaimedMs = $ClaimedMs
+                TerminalMs = [math]::Round($StreamStopwatch.Elapsed.TotalMilliseconds)
               }
             }
 
@@ -711,6 +782,9 @@ function Invoke-Batch {
 
             if ($Result.PSObject.Properties.Name -contains "status") {
               $LastStatus = [string]$Result.status
+              if ($LastStatus -eq "claimed" -and $ClaimedMs -eq "") {
+                $ClaimedMs = [math]::Round($StreamStopwatch.Elapsed.TotalMilliseconds)
+              }
             }
 
             if ($LastStatus -in @("succeeded", "permfailed", "tempfailed")) {
@@ -730,6 +804,9 @@ function Invoke-Batch {
                 Status = $LastStatus
                 Content = $ContentForParsing
                 Bytes = $Bytes + [Text.Encoding]::UTF8.GetByteCount($ContentForParsing)
+                FirstEventMs = $FirstEventMs
+                ClaimedMs = $ClaimedMs
+                TerminalMs = [math]::Round($StreamStopwatch.Elapsed.TotalMilliseconds)
               }
             }
           }
@@ -754,6 +831,7 @@ function Invoke-Batch {
           query = $Scenario.QueryBase64
         } | ConvertTo-Json -Depth 20 -Compress
 
+        $PostStopwatch = [Diagnostics.Stopwatch]::StartNew()
         $Response = Invoke-WebRequest `
           -Method Post `
           -Uri $SpotBeamUrl `
@@ -766,6 +844,8 @@ function Invoke-Batch {
           } `
           -Body $body `
           -TimeoutSec $TimeoutSec
+        $PostStopwatch.Stop()
+        $PostDurationMs = [math]::Round($PostStopwatch.Elapsed.TotalMilliseconds)
 
         $PostStatus = $Response.StatusCode
         if ($PostStatus -lt 200 -or $PostStatus -ge 300) {
@@ -773,11 +853,20 @@ function Invoke-Batch {
           $ResponseBytes = [Text.Encoding]::UTF8.GetByteCount($Response.Content)
           $Status = "failed"
         } else {
+          $SseStartMs = [math]::Round($Stopwatch.Elapsed.TotalMilliseconds)
           $FinalResult = Read-SpotBeamResultStream -SpotBeamUrl $SpotBeamUrl -TaskId $TaskId -TimeoutSec $TimeoutSec
           $HttpStatus = "$PostStatus/$($FinalResult.HttpStatus)"
           $ResponseBytes = $FinalResult.Bytes
           $PatientCount = Parse-PatientCount $FinalResult.Content
           $Status = $FinalResult.Status
+          $TimeToFirstEventMs = if ($FinalResult.FirstEventMs -ne "") { $SseStartMs + [int]$FinalResult.FirstEventMs } else { "" }
+          $TimeToClaimedMs = if ($FinalResult.ClaimedMs -ne "") { $SseStartMs + [int]$FinalResult.ClaimedMs } else { "" }
+          $TimeToTerminalMs = if ($FinalResult.TerminalMs -ne "") { $SseStartMs + [int]$FinalResult.TerminalMs } else { "" }
+          $ClaimedToTerminalMs = if ($FinalResult.ClaimedMs -ne "" -and $FinalResult.TerminalMs -ne "") {
+            [int]$FinalResult.TerminalMs - [int]$FinalResult.ClaimedMs
+          } else {
+            ""
+          }
         }
       } catch {
         $ErrorMessage = $_.Exception.Message
@@ -810,6 +899,12 @@ function Invoke-Batch {
         profile = $Profile
         http_status = $HttpStatus
         response_bytes = $ResponseBytes
+        task_id = $TaskId
+        post_duration_ms = $PostDurationMs
+        time_to_first_event_ms = $TimeToFirstEventMs
+        time_to_claimed_ms = $TimeToClaimedMs
+        time_to_terminal_ms = $TimeToTerminalMs
+        claimed_to_terminal_ms = $ClaimedToTerminalMs
       }
     } -ArgumentList $Phase, $Profile, $Scenario, $Run, $SpotBeamUrl, $TimeoutSec, $Concurrency, $Architecture
   }
@@ -818,7 +913,7 @@ function Invoke-Batch {
     $Row = Receive-Job -Job $Job -Wait
     Remove-Job -Job $Job
     Append-Measurement $Row
-    Write-Host "[$Phase] profile=$Profile scenario=$($Scenario.Name) run=$($Row.run) status=$($Row.status) duration=$($Row.duration_ms)ms patients=$($Row.patient_count) bytes=$($Row.response_bytes)"
+    Write-Host "[$Phase] profile=$Profile scenario=$($Scenario.Name) run=$($Row.run) status=$($Row.status) duration=$(Format-DurationSeconds $Row.duration_ms) patients=$($Row.patient_count) bytes=$($Row.response_bytes)"
   }
 }
 

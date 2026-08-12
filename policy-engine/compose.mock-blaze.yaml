@@ -1,0 +1,38 @@
+services:
+  # Replaces the real Blaze database with a fast deterministic FHIR mock.
+  #
+  # Focus still uses:
+  #   BLAZE_URL=http://blaze:8080/fhir/
+  #
+  # but the service behind the Docker name "blaze" now answers immediately with
+  # fixed FHIR search Bundles. This is useful for checking whether benchmark
+  # batching comes from Blaze query execution or from Beam/Focus task pickup.
+  blaze:
+    build:
+      context: ../policy-engine/mock-blaze
+    image: policy-engine/mock-blaze:local
+    ports:
+      - 8080:8080
+    environment:
+      MOCK_BLAZE_TOTAL: "15050"
+      MOCK_BLAZE_DIAGNOSIS_TOTAL: "1000"
+      MOCK_BLAZE_DELAY_MS: "0"
+      MOCK_BLAZE_LOG_REQUESTS: "true"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/fhir/metadata').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+      start_period: 2s
+
+  # The normal loader would try to upload thousands of FHIR resources. The mock
+  # does not store resources, so the loader is moved behind an unused profile.
+  test-data-loader:
+    profiles:
+      - real-blaze-loader

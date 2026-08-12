@@ -2,12 +2,19 @@ package output
 
 default allow_output := false
 
-patient_count := object.get(object.get(input.body, "totals", {}), "patient", 0)
-diagnosis_count := object.get(object.get(input.body, "totals", {}), "diagnosis", 0)
-gender_counts := object.get(object.get(input.body, "stratifiers", {}), "gender", {})
+totals := object.get(input.body, "totals", {})
+stratifiers := object.get(input.body, "stratifiers", {})
+
+# Mock-Blaze and older Focus transformations may expose the total count as
+# totals.result. The real policy still prefers totals.patient when present.
+patient_count := object.get(totals, "patient", object.get(totals, "result", 0))
+diagnosis_count := object.get(totals, "diagnosis", 0)
+gender_counts := object.get(stratifiers, "gender", {})
 female_count := object.get(gender_counts, "female", 0)
 male_count := object.get(gender_counts, "male", 0)
 other_count := object.get(gender_counts, "other", 0)
+donor_age_counts := object.get(stratifiers, "donor_age", {})
+sample_kind_counts := object.get(stratifiers, "sample_kind", {})
 
 # During the output check, the policy proxy attaches the originally allowed
 # input task as input.request_context. This lets the result policy evaluate both
@@ -44,11 +51,11 @@ allow_output if {
 	privacy_check(male_count)
 	privacy_check(other_count)
 
-	every _, count in input.body.stratifiers.donor_age {
+	every _, count in donor_age_counts {
 		privacy_check(count)
 	}
 
-    every _, count in input.body.stratifiers.sample_kind {
+    every _, count in sample_kind_counts {
 		privacy_check(count)
 	}
 }
