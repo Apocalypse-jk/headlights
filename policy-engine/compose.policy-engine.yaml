@@ -10,7 +10,21 @@ services:
       - --addr=0.0.0.0:8181
       - /policies
     volumes:
-      - ./opa/policies:/policies:ro
+      - ../policy-engine/opa/policies:/policies:ro
+    networks:
+      default:
+        aliases:
+          - policy-engine
+
+  casbin:
+    build:
+      context: ../policy-engine/casbin
+    profiles:
+      - casbin
+    environment:
+      BIND_ADDR: 0.0.0.0:8181
+      CASBIN_MODEL_PATH: ./model.conf
+      CASBIN_POLICY_PATH: ./policy.csv
     networks:
       default:
         aliases:

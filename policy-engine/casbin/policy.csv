@@ -1,0 +1,3 @@
+p, input, spot.proxy1.broker, focus.proxy2.broker, search, allow
+p, output, focus.proxy2.broker, result, claimed, allow
+p, output, focus.proxy2.broker, result, succeeded, allow
