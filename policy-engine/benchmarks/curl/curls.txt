@@ -1,0 +1,17 @@
+gender_male:
+
+curl ^"http://localhost:8055/beam^" ^
+  -H ^"Accept: */*^" ^
+  -H ^"Accept-Language: de,de-DE;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6^" ^
+  -H ^"Connection: keep-alive^" ^
+  -H ^"Content-Type: application/json^" ^
+  -H ^"Origin: http://localhost:3000^" ^
+  -H ^"Referer: http://localhost:3000/^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-site^" ^
+  -H ^"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0^" ^
+  -H ^"sec-ch-ua: ^\^"Not;A=Brand^\^";v=^\^"8^\^", ^\^"Chromium^\^";v=^\^"150^\^", ^\^"Microsoft Edge^\^";v=^\^"150^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  --data-raw ^"^{^\^"id^\^":^\^"9675e29e-579c-4ed3-b9b5-c8a4f39d77d8^\^",^\^"query^\^":^\^"eyJsYW5nIjoiYXN0IiwicGF5bG9hZCI6ImV5SmhjM1FpT25zaWIzQmxjbUZ1WkNJNklrOVNJaXdpWTJocGJHUnlaVzRpT2x0N0ltOXdaWEpoYm1RaU9pSkJUa1FpTENKamFHbHNaSEpsYmlJNlczc2lhMlY1SWpvaVoyVnVaR1Z5SWl3aWIzQmxjbUZ1WkNJNklrOVNJaXdpWTJocGJHUnlaVzRpT2x0N0ltdGxlU0k2SW1kbGJtUmxjaUlzSW5SNWNHVWlPaUpGVVZWQlRGTWlMQ0oyWVd4MVpTSTZJbTFoYkdVaWZWMTlYWDFkZlN3aWFXUWlPaUl4TXpFd05UVmtZUzFpWkRsaUxUUTVaR0l0WVRBMk5TMDVNakk0WkRZeU9EZG1aVFFpZlE9PSJ9^\^"^}^"

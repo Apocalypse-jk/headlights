@@ -51,6 +51,11 @@ services:
     healthcheck:
       test: curl -f http://localhost:8080/fhir/metadata
       start_period: 1m
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xmx8124m"
+      DB_RESOURCE_CACHE_SIZE: 2500000
+      DB_BLOCK_CACHE_SIZE: 2048
+      CQL_EXPR_CACHE_SIZE: 32
 
   test-data-loader:
     image: samply/test-data-loader:master
@@ -59,7 +64,7 @@ services:
         condition: service_healthy
     environment:
       FHIR_STORE_URL: http://blaze:8080/fhir
-      PATIENT_COUNT: "30000"
+      PATIENT_COUNT: "100000"
 
 include:
   - ../compose.localbeam.yaml

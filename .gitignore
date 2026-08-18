@@ -1,13 +1,6 @@
 .env
-/policy-engine/benchmarks/playwright/runs/
-/policy-engine/benchmarks/playwright/plots/
-/policy-engine/benchmarks/curl/runs/
+/policy-engine/benchmarks/playwright/
 /policy-engine/benchmarks/curl/plots/
-/policy-engine/benchmarks/curl/blaze-scripts/
-/policy-engine/benchmarks/curl/mock-blaze-scripts/
-/policy-engine/benchmarks/curl/analyze_curl_phase_timings.py
-/policy-engine/benchmarks/curl/curls.txt
-/policy-engine/benchmarks/toxiproxy/
 
 # Playwright
 node_modules/
