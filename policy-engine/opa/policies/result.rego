@@ -7,6 +7,7 @@ stratifiers := object.get(input.body, "stratifiers", {})
 
 # Mock-Blaze and older Focus transformations may expose the total count as
 # totals.result. The real policy still prefers totals.patient when present.
+
 patient_count := object.get(totals, "patient", object.get(totals, "result", 0))
 diagnosis_count := object.get(totals, "diagnosis", 0)
 gender_counts := object.get(stratifiers, "gender", {})
@@ -19,12 +20,14 @@ sample_kind_counts := object.get(stratifiers, "sample_kind", {})
 # During the output check, the policy proxy attaches the originally allowed
 # input task as input.request_context. This lets the result policy evaluate both
 # the result and properties of the search request that caused it.
+
 original_request := object.get(input, "request_context", {})
 original_request_found := object.get(input, "request_context_found", false)
 
 # The original task metadata is available here. Example fields for later rules:
 # requested_source := object.get(original_request_metadata, "source", "")
 # requested_purpose := object.get(original_request_metadata, "purpose", "")
+
 original_request_metadata := object.get(original_request, "metadata", {})
 
 privacy_check(count) if {
