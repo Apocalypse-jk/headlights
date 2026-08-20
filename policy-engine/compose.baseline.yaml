@@ -1,0 +1,18 @@
+services:
+  # Baseline path without a policy engine or Toxiproxy:
+  #   Focus -> proxy2 -> Beam Broker
+  focus:
+    depends_on: !override
+      proxy2:
+        condition: service_started
+      blaze:
+        condition: service_healthy
+    environment:
+      BEAM_PROXY_URL: http://proxy2:4002
+
+  # compose.localbeam.yaml normally starts the policy proxy and publishes port
+  # 4002. Moving it behind an inactive profile removes it from the baseline
+  # architecture while keeping the original service definition unchanged.
+  policy-proxy2:
+    profiles:
+      - policy-proxy

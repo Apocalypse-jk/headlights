@@ -1,197 +1,368 @@
-> I turn my headlights on and suddenly I can see
+# Headlights Policy Engine Evaluation
 
-[![Playwright Tests](https://github.com/samply/headlights/actions/workflows/playwright.yml/badge.svg)](https://github.com/samply/headlights/actions/workflows/playwright.yml)
+This repository is a research-oriented fork of
+[Samply.Headlights](https://github.com/samply/headlights). It extends the local
+BBMRI Sample Locator setup with configurable input and output authorization and
+with reproducible benchmark variants for comparing policy architectures.
 
-Headlights implements end-to-end testing of the federated search tools in the [Samply](https://github.com/samply/) organization. The repository is organized into project directories that contain a project README file, Docker Compose files, and optionally Playwright tests. You can get started by copying a command from one of the project README files. Note that running in bridgehead mode requires that you create a `.env` file in the corresponding project directory as described in the [bridgehead mode](#bridgehead-mode) section.
+The currently implemented policy frameworks are:
 
-- [Local mode](#local-mode)
-- [Bridgehead mode](#bridgehead-mode)
-- [Emulating other environments using override files](#emulating-other-environments-using-override-files)
-- [Running individual components from source](#running-individual-components-from-source)
-- [Automated tests using Playwright](#automated-tests-using-playwright)
+- [Open Policy Agent (OPA)](https://www.openpolicyagent.org/) with Rego policies
+- [Apache Casbin](https://casbin.org/) through an OPA-compatible adapter
 
-## Local mode
+The repository was developed for evaluating access-control policies in a
+distributed medical search system. It is a local research and development
+environment, not a production-ready deployment.
 
-![Local mode sketch](./local-mode-sketch.svg)
+## Goals
 
-In local mode all components are running locally. This includes a local [Beam](https://github.com/samply/beam) network and a local database (typically [Blaze](https://github.com/samply/blaze)) that is filled with synthetic data. Projects supporting local mode have a `compose.local.yaml` file in their project directory. Run a project in local mode as follows:
+- Keep Focus, Blaze and the Beam components unchanged.
+- Separate application logic from authorization logic.
+- Evaluate both incoming search tasks and outgoing query results.
+- Preserve the original search context for result-dependent policies.
+- Allow OPA, Casbin and a policy-free baseline to use the same application flow.
+- Measure end-to-end latency under different concurrency and network conditions.
+- Record policy-proxy decisions in a structured, hash-linked audit log.
 
-```bash
-docker compose -f [PROJECT DIRECTORY]/compose.local.yaml up --pull always
+## Architecture
+
+The web application submits a search through Spot and Beam. Focus does not
+receive tasks through an active push. It polls its configured Beam endpoint for
+new tasks instead. In the policy variants, the Policy Proxy exposes the Beam
+endpoints expected by Focus and forwards requests to the real local Beam proxy.
+
+```text
+Lens / BBMRI web application
+          |
+          v
+        Spot -> proxy1 -> Beam Broker <- proxy2
+                                        ^
+                                        |
+Focus -> Policy Proxy ------------------+
+  |
+  v
+Blaze
 ```
 
-`compose.local.yaml` files use the `compose.localbeam.yaml` file in the root of the repository by including it:
+The relevant sequence is:
 
-```
-include:
-  - ../compose.localbeam.yaml
-```
+1. Focus requests tasks from `GET /v1/tasks` on the Policy Proxy.
+2. The Policy Proxy retrieves decrypted tasks from the real `proxy2`.
+3. The input policy decides which tasks may reach Focus.
+4. Focus executes allowed searches against Blaze.
+5. Focus sends `claimed` and terminal results through the Policy Proxy.
+6. The output policy evaluates the result together with the stored request context.
+7. Allowed results are forwarded to Beam; denied results are replaced with a
+   non-sensitive `permfailed` result.
 
-The `compose.localbeam.yaml` file brings up a local Beam network consisting of a Beam broker and the following Beam proxies:
+The baseline override bypasses the Policy Proxy and connects Focus directly to
+`proxy2`.
 
-| Service name | Beam proxy ID   | Intended use                          | Host port | Configured apps |
-| ------------ | --------------- | ------------------------------------- | --------- | --------------- |
-| `proxy1`     | `proxy1.broker` | Connect frontend via Spot             | `4001`    | `spot`, `prism` |
-| `proxy2`     | `proxy2.broker` | Connect database via Focus            | `4002`    | `focus`         |
-| `proxy3`     | `proxy3.broker` | Connect database via Focus (optional) | `4003`    | `focus`         |
-| `proxy4`     | `proxy4.broker` | Connect database via Focus (optional) | `4004`    | `focus`         |
+## Repository layout
 
-All apps use the key `pass123` to connect to a local proxy.
-
-## Bridgehead mode
-
-![Bridgehead mode sketch](./bridgehead-mode-sketch.svg)
-
-In bridgehead mode data is fetched from real bridgeheads. This requires that you have a development proxy enrolled in the Beam network. Create a `.env` file in the corresponding project directory, for example `ccp-explorer/.env`:
-
-```
-PROXY_ID_SHORT=dev-tim
-PRIVKEY_FILE=/home/tim/beamkeys/broker.ccp-it.dktk.dkfz.de/dev-tim.priv.pem
-ROOTCERT_FILE=/home/tim/beamkeys/broker.ccp-it.dktk.dkfz.de/root.crt.pem
-```
-
-Now you are ready to use bridgehead mode. Projects supporting bridgehead mode have a `compose.bridgehead.yaml` file in their project directory. Run a project in bridgehead mode as follows:
-
-```bash
-docker compose -f [PROJECT DIRECTORY]/compose.bridgehead.yaml up --pull always
+```text
+.
+|-- bbmri-sample-locator/       Local web application, Focus and Blaze setup
+|-- compose.localbeam.yaml      Beam Broker, Beam proxies and Policy Proxy
+|-- pki-setup.sh                Local Vault/Beam PKI initialization
+`-- policy-engine/
+    |-- compose.policy-engine.yaml
+    |-- compose.baseline.yaml
+    |-- compose.toxiproxy.yaml
+    |-- compose.toxiproxy.baseline.yaml
+    |-- compose.mock-blaze.yaml
+    |-- policy-proxy/           Beam-compatible TypeScript authorization proxy
+    |-- opa/policies/           Input and output policies written in Rego
+    |-- casbin/                 Casbin model, policy and HTTP adapter
+    |-- mock-blaze/             Deterministic Blaze replacement
+    `-- benchmarks/curl/        End-to-end benchmark and plotting scripts
 ```
 
-`compose.bridgehead.yaml` files define the `proxy1` service that uses the private key to connect to the Beam network. For example:
+## Prerequisites
 
-```yaml
-  proxy1:
-    image: samply/beam-proxy:main
-    ports:
-      - 4001:4001
-    environment:
-      BIND_ADDR: 0.0.0.0:4001
-      BROKER_URL: https://broker.ccp-it.dktk.dkfz.de
-      PROXY_ID: ${PROXY_ID_SHORT}.broker.ccp-it.dktk.dkfz.de
-      PRIVKEY_FILE: /priv.key.pem
-      ROOTCERT_FILE: /root.crt.pem
-      APP_spot_KEY: pass123
-      APP_prism_KEY: pass123
-    volumes:
-      - ${PRIVKEY_FILE}:/priv.key.pem:ro
-      - ${ROOTCERT_FILE}:/root.crt.pem:ro
+- Docker Desktop or another Docker installation with Docker Compose v2
+- Git
+- PowerShell for the curl benchmark script
+- Python 3 with `pandas` and `matplotlib` for plot generation
+- Sufficient memory and disk space for Blaze and the generated test data
+
+All commands below are intended to be executed from the repository root. The
+local Compose configuration currently loads 100,000 test patients. The first
+startup can therefore take several minutes.
+
+## Quick start
+
+Start the complete local setup with OPA:
+
+```powershell
+docker compose `
+  -f .\bbmri-sample-locator\compose.local.yaml `
+  --profile opa `
+  up -d --build
 ```
 
-## Emulating other environments using override files
+Inspect the service state:
 
-Projects can have more than one environment. The `compose.local.yaml` and `compose.bridgehead.yaml` files should emulate the production environment. Override files are used to emulate other environments. For example projects with a test environment have a `compose.local.test.yaml` or `compose.bridgehead.test.yaml` override file in their project directory. Use these as follows:
-
-```bash
-docker compose -f [PROJECT DIRECTORY]/compose.local.yaml -f [PROJECT DIRECTORY]/compose.local.test.yaml up --pull always
-docker compose -f [PROJECT DIRECTORY]/compose.bridgehead.yaml -f [PROJECT DIRECTORY]/compose.bridgehead.test.yaml up --pull always
+```powershell
+docker compose `
+  -f .\bbmri-sample-locator\compose.local.yaml `
+  --profile opa `
+  ps
 ```
 
-Override files commonly override image tags, the Beam broker, and the sites to query. For example:
+Open the Sample Locator at <http://localhost:3000/search/>. A one-shot service
+such as `pki-setup` or `test-data-loader` ending with `Exited (0)` is expected.
 
-```yaml
-services:
-  lens:
-    image: samply/bbmri-sample-locator:main
-    environment:
-      PUBLIC_ENVIRONMENT: test
-  
-  spot:
-    image: samply/rustyspot:main
-    environment:
-      BEAM_APP_ID: spot.${PROXY_ID_SHORT_TEST}.broker-test.bbmri-test.samply.de
-      SITES: eric-test,uppsala-test,lodz-test,DNB-Test
+## Core start variants
 
-  proxy1:
-    environment:
-      BROKER_URL: https://broker-test.bbmri-test.samply.de
-      PROXY_ID: ${PROXY_ID_SHORT_TEST}.broker-test.bbmri-test.samply.de
-      PRIVKEY_FILE: /priv.key.pem
-      ROOTCERT_FILE: /root.crt.pem
-    volumes:
-      - ${PRIVKEY_FILE_TEST}:/priv.key.pem:ro
-      - ${ROOTCERT_FILE_TEST}:/root.crt.pem:ro
+Only one policy framework profile should be active at a time. OPA and Casbin
+both use the internal Docker alias `policy-engine`; starting both profiles in
+the same stack makes policy-engine resolution ambiguous.
+
+### Baseline without a policy component
+
+```powershell
+docker compose `
+  -f .\bbmri-sample-locator\compose.local.yaml `
+  -f .\policy-engine\compose.baseline.yaml `
+  up -d --build
 ```
 
-## Running individual components from source
+### OPA
 
-Headlights allows you to exclude a specific component from the Compose file and run it from source. Let's consider an example and look at the three steps in detail. Say we want to start a project in local mode and run Focus from source. The first step is to extract the environment variables of the `focus` service from the Compose file:
-
-```bash
-docker compose -f [PROJECT DIRECTORY]/compose.local.yaml config --format json | ./getenv focus
+```powershell
+docker compose `
+  -f .\bbmri-sample-locator\compose.local.yaml `
+  --profile opa `
+  up -d --build
 ```
 
-This requires that the `compose.local.yaml` file supports running the Focus component from source. All components that Focus connects to must be exposed to a port on the host and Focus must refer to them via `docker.host.internal`. For example:
+### Casbin
 
-```yaml
-  focus:
-    image: samply/focus:main
-    depends_on:
-      - proxy2
-    extra_hosts:
-      - host.docker.internal:host-gateway
-    environment:
-      BEAM_PROXY_URL: http://host.docker.internal:4002
-      BEAM_APP_ID_LONG: focus.proxy2.broker
-      API_KEY: pass123
-      ENDPOINT_TYPE: blaze
-      BLAZE_URL: http://host.docker.internal:8080/fhir/
-      OBFUSCATE: no
+```powershell
+docker compose `
+  -f .\bbmri-sample-locator\compose.local.yaml `
+  --profile casbin `
+  up -d --build
 ```
 
-The `getenv` script replaces `http://docker.host.internal` with `http://localhost` yielding a list of environment variables that can be used to run Focus on the host.
+`bbmri-sample-locator/compose.local.yaml` includes
+`policy-engine/compose.policy-engine.yaml`, so no additional policy-engine
+Compose file is required for OPA or Casbin.
 
-The second step is to run the Compose file excluding the `focus` service:
+## Optional benchmark components
 
-```
-docker compose -f [PROJECT DIRECTORY]/compose.local.yaml up --pull always --scale focus=0
-```
+### Toxiproxy
 
-As a last step we can run Focus from source with the environment variables we obtained in the first step:
+Toxiproxy introduces controlled network conditions between Focus and the
+Policy Proxy. In the baseline variant it is placed between Focus and `proxy2`.
+The benchmark runner configures these profiles in both directions:
 
-```
-API_KEY='pass123' BEAM_APP_ID_LONG='focus.proxy2.broker' BEAM_PROXY_URL='http://localhost:4002' BLAZE_URL='http://localhost:8080/fhir/' ENDPOINT_TYPE='blaze' OBFUSCATE='no' cargo run
-```
+| Profile | Latency | Jitter | Bandwidth |
+| --- | ---: | ---: | ---: |
+| `lan` | 0 ms | 0 ms | unlimited |
+| `wan-typical` | 25 ms | 5 ms | 12,500 KB/s |
+| `intercontinental` | 150 ms | 10 ms | 6,250 KB/s |
 
-## Automated tests using Playwright
+Start the baseline with Toxiproxy:
 
-Headlights supports automated end-to-end testing using [Playwright](https://playwright.dev/). Playwright tests can run in three scenarios:
-
-* Projects with automated tests include a `playwright` service in their `compose.local.yaml` file. When running a project in local mode the service runs the Playwright tests automatically and logs the results.
-* GitHub Actions runs all Playwright tests nightly by starting the project in local mode and monitoring the exit code of the `playwright` service. GitHub Actions passes the environment variable `CI=true` which changes the Playwright configuration.
-* You can install Playwright on your machine to run tests outside of Docker. This allows you to use [UI Mode](https://playwright.dev/docs/test-ui-mode) to develop and debug tests locally.
-
-By convention projects place automated tests in a `playwright.spec.ts` file in their project directory.  Here is an example of a simple Playwright test:
-
-```ts
-test('table contains 256', async ({ page }) => {
-  await page.goto('/search');
-  await expect(page.getByRole('table')).toContainText('256');
-});
+```powershell
+docker compose `
+  -f .\bbmri-sample-locator\compose.local.yaml `
+  -f .\policy-engine\compose.toxiproxy.baseline.yaml `
+  --profile toxiproxy `
+  up -d --build
 ```
 
-Projects include a `playwright` container in their `compose.local.yaml` file. For example:
+Start OPA with Toxiproxy:
 
-```yaml
-  playwright:
-    image: mcr.microsoft.com/playwright:v1.59.1-noble
-    network_mode: host
-    depends_on:
-      test-data-loader:
-        condition: service_completed_successfully
-    environment:
-      - CI=${CI}
-    volumes:
-      - ../playwright.config.ts:/test/playwright.config.ts:ro
-      - ./playwright.spec.ts:/test/playwright.spec.ts:ro
-    working_dir: /test
-    command: bash -c 'npm i @playwright/test@1.59.1 && npx playwright test'
+```powershell
+docker compose `
+  -f .\bbmri-sample-locator\compose.local.yaml `
+  -f .\policy-engine\compose.toxiproxy.yaml `
+  --profile opa `
+  --profile toxiproxy `
+  up -d --build
 ```
 
-When writing new tests it is recommended to install Playwright on your machine for a better developer experience. To do so first run `npm install` in the root of the repository and then run `npx playwright install`. The latter will download browser binaries to your computer and install system dependencies. Playwright officially supports Windows, Mac and Ubuntu/Debian. On other Linux distributions it may fail to install system dependencies but it might still work. On Arch Linux for example, Chromium and Firefox tests work despite missing dependencies but Safari does not.
+For Casbin, use the same command with `--profile casbin` instead of
+`--profile opa`.
 
-Once Playwright is installed on your machine you can use UI Mode:
+### Mock Blaze
 
+`compose.mock-blaze.yaml` replaces Blaze with a deterministic HTTP service. It
+immediately returns the same predefined response for every supported request.
+This removes Blaze database queries and FHIR processing as variable benchmark
+factors, but does not represent the runtime of a real Blaze search.
+
+The default mock result contains a total count of 15,050 and a diagnosis count
+of 1,000 so that it can pass the current output policies.
+
+Baseline with Mock Blaze and without Toxiproxy:
+
+```powershell
+docker compose `
+  -f .\bbmri-sample-locator\compose.local.yaml `
+  -f .\policy-engine\compose.mock-blaze.yaml `
+  -f .\policy-engine\compose.baseline.yaml `
+  up -d --build
 ```
-npx playwright test --ui
+
+OPA with Mock Blaze and Toxiproxy:
+
+```powershell
+docker compose `
+  -f .\bbmri-sample-locator\compose.local.yaml `
+  -f .\policy-engine\compose.mock-blaze.yaml `
+  -f .\policy-engine\compose.toxiproxy.yaml `
+  --profile opa `
+  --profile toxiproxy `
+  up -d --build
 ```
 
-In another terminal run a project in local mode and wait for it to be ready before triggering tests in the Playwright UI.
+Casbin uses the same command with `--profile casbin`. For a baseline with both
+Mock Blaze and Toxiproxy, replace `compose.toxiproxy.yaml` with
+`compose.toxiproxy.baseline.yaml` and omit the policy profile.
+
+## Current policy behavior
+
+The OPA input policy is located at
+`policy-engine/opa/policies/search.rego`. It currently permits search tasks
+from `spot.proxy1.broker` when `focus.proxy2.broker` is a target.
+
+The output policy in `policy-engine/opa/policies/result.rego`:
+
+- permits the `claimed` task status;
+- requires successful results to originate from `focus.proxy2.broker`;
+- requires the original request context to be available;
+- requires at least 50 patients and 50 diagnoses;
+- accepts gender, donor-age and sample-kind buckets only when their count is
+  zero or at least ten;
+- permits a metadata value of `project:superuser` as an explicit exception.
+
+OPA loads the mounted Rego files with `--watch`, so valid saved policy changes
+are reloaded automatically. Check the OPA logs when a change prevents the
+service from starting or being healthy.
+
+The Casbin input and coarse output permissions are stored in
+`policy-engine/casbin/policy.csv` and use the model in `model.conf`. The
+content-aware output checks are implemented in the Casbin TypeScript adapter.
+Changes to the Casbin model, policy or adapter require rebuilding the Casbin
+service.
+
+## Policy Proxy
+
+The Policy Proxy exposes the Beam endpoints used by Focus and keeps the actual
+Beam proxy responsible for broker communication, certificates, encryption and
+Beam authentication. It performs fail-closed authorization by default.
+
+Important environment variables are configured in `compose.localbeam.yaml`:
+
+| Variable | Purpose |
+| --- | --- |
+| `UPSTREAM_BEAM_PROXY_URL` | Address of the real local Beam proxy |
+| `POLICY_ENGINE_URL` | Shared address of the selected policy engine |
+| `INPUT_POLICY_PATH` | Endpoint used for incoming task decisions |
+| `OUTPUT_POLICY_PATH` | Endpoint used for outgoing result decisions |
+| `POLICY_FAIL_MODE` | `closed` denies requests when evaluation fails |
+| `POLICY_TIMEOUT_MS` | Timeout for one policy-engine request |
+| `UPSTREAM_TIMEOUT_MS` | Timeout for one Beam upstream request |
+| `TASK_CONTEXT_TTL_MS` | Lifetime of stored request context; default one hour |
+| `AUDIT_LOG_PATH` | JSONL audit-log path inside the container |
+
+Original task contexts are stored in an in-memory map keyed by task ID. This
+allows output policies to match concurrent results to their original search
+requests. The state is not shared between multiple Policy Proxy instances and
+is lost when the container restarts.
+
+## Audit log
+
+The Policy Proxy records health checks, task retrieval, policy decisions,
+forwarding steps, errors and task-context lifecycle events. Entries are written
+as JSON Lines with an ISO timestamp, sequence number, SHA-256 entry hash and a
+link to the previous entry hash.
+
+View recent audit entries in the container:
+
+```powershell
+docker compose `
+  -f .\bbmri-sample-locator\compose.local.yaml `
+  exec policy-proxy2 sh -c "tail -n 20 /audit/policy-proxy2-audit.jsonl"
+```
+
+The log is stored in the `policy-proxy2-audit` Docker volume and therefore
+survives normal container recreation. The hash chain makes unnoticed changes
+detectable, but it is not tamper-proof when an attacker can rewrite the entire
+file and all hashes. Production use would require protected or external log
+storage.
+
+## Curl end-to-end benchmarks
+
+The PowerShell benchmark submits the realistic query stored in
+`policy-engine/benchmarks/curl/curls.txt` to Spot, follows the returned SSE
+stream until a terminal Beam result, and records every request immediately in
+`measurements.csv`. Warmups run before measurement iterations.
+
+Example for OPA:
+
+```powershell
+.\policy-engine\benchmarks\curl\run-realistic-curl.ps1 `
+  -Architecture opa `
+  -WarmupIterations 5 `
+  -Iterations 30 `
+  -Concurrency 10
+```
+
+Use `-Architecture casbin` or `-Architecture baseline` for the other variants.
+The default network profiles are `lan`, `wan-typical` and `intercontinental`,
+so a Toxiproxy stack must be running before this benchmark is started.
+
+Measurements include timestamps, end-to-end duration, terminal status,
+patient count, HTTP status, response size, task ID and timing markers for the
+submission, first SSE event, `claimed` event and terminal result. New runs are
+initially written below `policy-engine/benchmarks/curl/runs/`.
+
+Plot scripts are separated by data source:
+
+- `policy-engine/benchmarks/curl/blaze-scripts/`
+- `policy-engine/benchmarks/curl/mock-blaze-scripts/`
+
+They expect measurements grouped below `runs/blaze/` or `runs/mock-blaze/` by
+architecture, repeated run and measurement name. Run a script with `--help` to
+see its optional input and output arguments.
+
+## Useful operations
+
+Follow the main OPA data path:
+
+```powershell
+docker compose `
+  -f .\bbmri-sample-locator\compose.local.yaml `
+  --profile opa `
+  logs -f --tail=100 focus policy-proxy2 proxy2 opa
+```
+
+Check the Policy Proxy health endpoint:
+
+```powershell
+curl.exe http://localhost:4002/v1/health
+```
+
+Stop a stack by repeating the same Compose files and profiles used to start it
+and replacing `up -d --build` with `down`. Stop the previous stack before
+switching between OPA, Casbin and baseline so inactive containers do not consume
+resources or affect benchmark measurements.
+
+## Known limitations
+
+- The Compose files contain development credentials and must not be used as a
+  production security configuration.
+- Request context is held in one Policy Proxy process and is not horizontally
+  shared or persisted.
+- Casbin's content-aware privacy rules are partly implemented in its adapter,
+  so benchmark results compare complete integrations rather than isolated
+  policy-language execution.
+- The benchmark environment is not resource-isolated; other host processes can
+  influence measured latency and container resource usage.
+- Mock-Blaze measurements isolate the rest of the architecture but do not model
+  real database and FHIR-processing costs.
